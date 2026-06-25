@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { BookOpen, Check, ChevronRight, CircleAlert, ExternalLink, FileText, Library, LoaderCircle, Plus, Save, Search, Sparkles, Trash2, X } from "lucide-react";
 import { api } from "./api";
-import type { DocumentDetail, DocumentSummary, QnA, ReviewStatus, Section } from "./types";
+import type { DatasetSummary, DocumentDetail, DocumentSummary, QnA, ReviewStatus, Section } from "./types";
 
 type SourceTab = "section" | "pdf";
-const answerTypes = ["facts", "results", "methods", "definitions", "comparisons", "analysis"] as const;
+const answerTypes = ["facts", "results", "methods", "definitions", "comparisons", "analysis", "definition", "comparison", "guideline", "procedure", "requirement", "control", "risk", "rationale"] as const;
 
 function statusLabel(value: ReviewStatus) {
   if (value === "verified") return "Reviewed";
@@ -13,6 +13,8 @@ function statusLabel(value: ReviewStatus) {
 }
 
 function App() {
+  const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
+  const [selectedDataset, setSelectedDataset] = useState("academic");
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [document, setDocument] = useState<DocumentDetail | null>(null);
   const [selectedDoc, setSelectedDoc] = useState("");
@@ -28,11 +30,24 @@ function App() {
   const [notice, setNotice] = useState("");
   const [isNew, setIsNew] = useState(false);
 
-  const refreshDocuments = () => api.documents().then(setDocuments);
+  const selectedDatasetInfo = useMemo(() => datasets.find((dataset) => dataset.key === selectedDataset) || null, [datasets, selectedDataset]);
+  const documentLabel = selectedDatasetInfo?.document_label || "documents";
+  const refreshDocuments = (datasetKey = selectedDataset) => api.documents(datasetKey).then(setDocuments);
 
   useEffect(() => {
-    refreshDocuments().then(() => setLoading(false)).catch((err) => { setError(err.message); setLoading(false); });
+    api.datasets().then(setDatasets).catch((err) => setError(err.message));
   }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    setDocument(null);
+    setDraft(null);
+    setSelectedDoc("");
+    setSelectedQid("");
+    setIsNew(false);
+    setNotice("");
+    refreshDocuments(selectedDataset).then(() => setLoading(false)).catch((err) => { setError(err.message); setLoading(false); });
+  }, [selectedDataset]);
 
   useEffect(() => {
     if (!selectedDoc && documents.length) setSelectedDoc(documents[0].doc_id);
@@ -41,14 +56,14 @@ function App() {
   useEffect(() => {
     if (!selectedDoc) return;
     setLoading(true);
-    api.document(selectedDoc).then((value) => {
+    api.document(selectedDataset, selectedDoc).then((value) => {
       setDocument(value);
       setSelectedQid(value.qnas[0]?.qid || "");
       setDraft(value.qnas[0] ? structuredClone(value.qnas[0]) : null);
       setIsNew(false);
       setLoading(false);
     }).catch((err) => { setError(err.message); setLoading(false); });
-  }, [selectedDoc]);
+  }, [selectedDataset, selectedDoc]);
 
   const visibleQnas = useMemo(() => (document?.qnas || []).filter((qna) => {
     const matchesFilter = filter === "all" || (qna.status || "unverified") === filter;
@@ -68,7 +83,7 @@ function App() {
   function startNew() {
     if (!document?.sections.length) return;
     const section = document.sections[0];
-    setDraft({ qid: "New", domain: "academic-rag", doc_id: document.doc_id, doc_title: document.doc_title, question: "", answer_exact: "", answer_llm: "", answer_type: "facts", relevant_sections: [{ section_id: section.section_id, section_heading: section.section_heading, sec_char_start: 0, sec_char_end: 0, evidence_sentence: "" }], source: section.source, created_by: "reviewer", status: "unverified", tags: [], difficulty: "medium" });
+    setDraft({ qid: "New", domain: selectedDatasetInfo?.qna_domain || "academic-rag", doc_id: document.doc_id, doc_title: document.doc_title, question: "", answer_exact: "", answer_llm: "", answer_type: "facts", relevant_sections: [{ section_id: section.section_id, section_heading: section.section_heading, sec_char_start: 0, sec_char_end: 0, evidence_sentence: "" }], source: section.source, created_by: "reviewer", status: "unverified", tags: [], difficulty: "medium" });
     setSelectedQid(""); setIsNew(true); setSourceTab("section");
   }
 
@@ -90,8 +105,8 @@ function App() {
     if (!document || !draft) return;
     setSaving(true); setError("");
     try {
-      const saved = isNew ? await api.create(document.doc_id, draft) : await api.update(document.doc_id, draft.qid, draft);
-      const fresh = await api.document(document.doc_id);
+      const saved = isNew ? await api.create(selectedDataset, document.doc_id, draft) : await api.update(selectedDataset, document.doc_id, draft.qid, draft);
+      const fresh = await api.document(selectedDataset, document.doc_id);
       setDocument(fresh); setDraft(structuredClone(saved)); setSelectedQid(saved.qid); setIsNew(false);
       await refreshDocuments(); setNotice("Saved to the local dataset");
     } catch (err) { setError(err instanceof Error ? err.message : "Could not save"); }
@@ -102,8 +117,8 @@ function App() {
     if (!document || !draft || isNew || !window.confirm(`Delete ${draft.qid}? This will update the local JSON file.`)) return;
     setSaving(true);
     try {
-      await api.remove(document.doc_id, draft.qid);
-      const fresh = await api.document(document.doc_id); setDocument(fresh);
+      await api.remove(selectedDataset, document.doc_id, draft.qid);
+      const fresh = await api.document(selectedDataset, document.doc_id); setDocument(fresh);
       const next = fresh.qnas[0] || null; setDraft(next ? structuredClone(next) : null); setSelectedQid(next?.qid || "");
       await refreshDocuments(); setNotice("Q&A pair deleted");
     } catch (err) { setError(err instanceof Error ? err.message : "Could not delete"); }
@@ -115,8 +130,8 @@ function App() {
     setDeletingDocument(true); setError(""); setNotice("");
     try {
       const currentIndex = documents.findIndex((item) => item.doc_id === document.doc_id);
-      const result = await api.deleteDocument(document.doc_id);
-      const freshDocuments = await api.documents();
+      const result = await api.deleteDocument(selectedDataset, document.doc_id);
+      const freshDocuments = await api.documents(selectedDataset);
       const nextDocument = freshDocuments[Math.min(currentIndex, freshDocuments.length - 1)] || null;
       setDocuments(freshDocuments); setDocument(null); setDraft(null); setSelectedQid(""); setIsNew(false);
       setSelectedDoc(nextDocument?.doc_id || "");
@@ -130,13 +145,14 @@ function App() {
   return <div className="app-shell">
     <header className="topbar">
       <div className="brand"><div className="brand-mark"><Sparkles size={18} /></div><div><strong>Rivewer</strong><span>RAG Q&A Dataset Reviewer Tool</span></div></div>
-      <div className="top-stats"><span><Library size={15} /> {documents.length} papers</span><span><FileText size={15} /> {documents.reduce((sum, doc) => sum + doc.qna_count, 0)} pairs</span></div>
+      <label className="dataset-switcher"><span>Collection</span><select value={selectedDataset} onChange={(event) => setSelectedDataset(event.target.value)}>{datasets.map((dataset) => <option key={dataset.key} value={dataset.key} disabled={!dataset.available}>{dataset.label}</option>)}</select></label>
+      <div className="top-stats"><span><Library size={15} /> {documents.length} {documentLabel}</span><span><FileText size={15} /> {documents.reduce((sum, doc) => sum + doc.qna_count, 0)} pairs</span></div>
       <div className="storage-pill"><span className="pulse-dot" /> Local workspace</div>
     </header>
 
     <main className="workspace">
       <aside className="papers-panel">
-        <div className="panel-heading"><div><span className="eyebrow">Collection</span><h2>Papers</h2></div>{document && <button className="document-delete" disabled={deletingDocument} title="Delete selected document" onClick={removeDocument}>{deletingDocument ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />} Delete</button>}</div>
+        <div className="panel-heading"><div><span className="eyebrow">{selectedDatasetInfo?.label || "Collection"}</span><h2>Documents</h2></div>{document && <button className="document-delete" disabled={deletingDocument} title="Delete selected document" onClick={removeDocument}>{deletingDocument ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />} Delete</button>}</div>
         <div className="paper-list">{documents.map((doc, index) => {
           const reviewed = doc.status_counts.verified; const progress = doc.qna_count ? Math.round(reviewed / doc.qna_count * 100) : 0;
           const reviewComplete = doc.qna_count > 0 && reviewed === doc.qna_count;
@@ -162,7 +178,7 @@ function App() {
           {(error || notice) && <div className={`toast ${error ? "error" : "success"}`}>{error ? <CircleAlert size={16} /> : <Check size={16} />}{error || notice}<button onClick={() => { setError(""); setNotice(""); }}><X size={14} /></button></div>}
           <div className="editor-scroll">
             <div className="form-section"><label className="field-label">Question</label><textarea className="question-input" value={draft.question} onChange={(event) => patchDraft({ question: event.target.value })} placeholder="Ask a focused, evidence-grounded question…" /></div>
-            <div className="form-grid three"><label><span className="field-label">Review status</span><select value={draft.status || "unverified"} onChange={(event) => patchDraft({ status: event.target.value as ReviewStatus })}><option value="unverified">Unverified</option><option value="verified">Verified</option><option value="needs_revision">Needs revision</option></select></label><label><span className="field-label">Difficulty</span><select value={draft.difficulty} onChange={(event) => patchDraft({ difficulty: event.target.value as QnA["difficulty"] })}><option>easy</option><option>medium</option><option>hard</option></select></label><label><span className="field-label">Answer type</span><select value={draft.answer_type} onChange={(event) => patchDraft({ answer_type: event.target.value as QnA["answer_type"] })}>{answerTypes.map((type) => <option key={type}>{type}</option>)}</select></label></div>
+            <div className="form-grid three"><label><span className="field-label">Review status</span><select value={draft.status || "unverified"} onChange={(event) => patchDraft({ status: event.target.value as ReviewStatus })}><option value="unverified">Unverified</option><option value="verified">Verified</option><option value="needs_revision">Needs revision</option></select></label><label><span className="field-label">Difficulty</span><select value={draft.difficulty} onChange={(event) => patchDraft({ difficulty: event.target.value as QnA["difficulty"] })}><option>easy</option><option>medium</option><option>hard</option></select></label><label><span className="field-label">Answer type</span><select value={draft.answer_type} onChange={(event) => patchDraft({ answer_type: event.target.value })}>{Array.from(new Set([...answerTypes, draft.answer_type])).map((type) => <option key={type}>{type}</option>)}</select></label></div>
             <div className="answer-columns"><label><span className="field-label">Exact answer</span><textarea value={draft.answer_exact} onChange={(event) => patchDraft({ answer_exact: event.target.value })} placeholder="Concise, precise answer" /></label><label><span className="field-label">LLM Generated Answer</span><textarea value={draft.answer_llm} onChange={(event) => patchDraft({ answer_llm: event.target.value })} placeholder="A fluent, explanatory answer" /></label></div>
             <label><span className="field-label">Tags <small>comma separated</small></span><input value={draft.tags.join(", ")} onChange={(event) => patchDraft({ tags: event.target.value.split(",").map((tag) => tag.trim()).filter(Boolean) })} placeholder="retrieval, benchmark, methods" /></label>
             <div className="source-workbench">

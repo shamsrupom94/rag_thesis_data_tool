@@ -1,6 +1,14 @@
 export type ReviewStatus = "unverified" | "verified" | "needs_revision";
 export type Difficulty = "easy" | "medium" | "hard";
 
+export interface DatasetSummary {
+  key: string;
+  label: string;
+  document_label: string;
+  qna_domain: string;
+  available: boolean;
+}
+
 export interface RelevantSection {
   section_id: string;
   section_heading: string;
@@ -17,7 +25,7 @@ export interface QnA {
   question: string;
   answer_exact: string;
   answer_llm: string;
-  answer_type: "facts" | "results" | "methods" | "definitions" | "comparisons" | "analysis";
+  answer_type: string;
   relevant_sections: RelevantSection[];
   source: Record<string, string>;
   created_by: string;
@@ -37,6 +45,7 @@ export interface Section {
 }
 
 export interface DocumentSummary {
+  dataset_key: string;
   doc_id: string;
   doc_title: string;
   section_count: number;
@@ -50,4 +59,3 @@ export interface DocumentDetail extends DocumentSummary {
   qnas: QnA[];
   pdf_url: string | null;
 }
-
