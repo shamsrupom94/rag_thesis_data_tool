@@ -1,4 +1,4 @@
-import type { DocumentDetail, DocumentSummary, QnA } from "./types";
+import type { DatasetSummary, DocumentDetail, DocumentSummary, QnA } from "./types";
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, options);
@@ -10,13 +10,27 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  documents: () => request<DocumentSummary[]>("/api/documents"),
-  document: (docId: string) => request<DocumentDetail>(`/api/documents/${docId}`),
-  deleteDocument: (docId: string) =>
-    request<{ doc_id: string; deleted_files: string[]; removed_sectionized_rows: number }>(`/api/documents/${docId}`, { method: "DELETE" }),
-  create: (docId: string, qna: Omit<QnA, "qid" | "domain" | "doc_id" | "doc_title" | "source" | "created_by">) =>
-    request<QnA>(`/api/documents/${docId}/qnas`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(qna) }),
-  update: (docId: string, qid: string, qna: QnA) =>
-    request<QnA>(`/api/documents/${docId}/qnas/${encodeURIComponent(qid)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(qna) }),
-  remove: (docId: string, qid: string) => request<void>(`/api/documents/${docId}/qnas/${encodeURIComponent(qid)}`, { method: "DELETE" }),
+  datasets: () => request<DatasetSummary[]>("/api/datasets"),
+  documents: (datasetKey: string) => request<DocumentSummary[]>(`/api/datasets/${encodeURIComponent(datasetKey)}/documents`),
+  document: (datasetKey: string, docId: string) =>
+    request<DocumentDetail>(`/api/datasets/${encodeURIComponent(datasetKey)}/documents/${docId}`),
+  deleteDocument: (datasetKey: string, docId: string) =>
+    request<{ doc_id: string; deleted_files: string[]; removed_sectionized_rows: number }>(
+      `/api/datasets/${encodeURIComponent(datasetKey)}/documents/${docId}`,
+      { method: "DELETE" },
+    ),
+  create: (datasetKey: string, docId: string, qna: Omit<QnA, "qid" | "domain" | "doc_id" | "doc_title" | "source" | "created_by">) =>
+    request<QnA>(`/api/datasets/${encodeURIComponent(datasetKey)}/documents/${docId}/qnas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(qna),
+    }),
+  update: (datasetKey: string, docId: string, qid: string, qna: QnA) =>
+    request<QnA>(`/api/datasets/${encodeURIComponent(datasetKey)}/documents/${docId}/qnas/${encodeURIComponent(qid)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(qna),
+    }),
+  remove: (datasetKey: string, docId: string, qid: string) =>
+    request<void>(`/api/datasets/${encodeURIComponent(datasetKey)}/documents/${docId}/qnas/${encodeURIComponent(qid)}`, { method: "DELETE" }),
 };
